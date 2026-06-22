@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>오피스 서바이버 디럭스</title>
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      color: #eee;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      height: 100vh;
+      overflow: hidden;
+    }
+    canvas {
+      background: #0a0a0a;
+      border: 1px solid #333;
+      margin-top: 20px;
+      max-width: 100%;
+    }
+    #hud {
+      margin-top: 8px;
+      white-space: pre-line;
+    }
+    #levelUpContainer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 18px;
+      z-index: 20;
+    }
+    .hidden {
+      display: none !important;
+    }
+    .upgrade-option {
+      background: #222;
+      border: 1px solid #555;
+      padding: 10px 20px;
+      margin: 6px;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+      border-radius: 4px;
+    }
+    .upgrade-option:hover {
+      background: #444;
+    }
+    /* 메뉴 및 도움말 오버레이 */
+    #menuOverlay, #helpOverlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      z-index: 30;
+      text-align: center;
+      padding: 20px;
+    }
+    .menu-button {
+      background: #444;
+      border: 1px solid #777;
+      padding: 10px 20px;
+      margin: 10px;
+      font-size: 18px;
+      cursor: pointer;
+      color: #fff;
+      border-radius: 5px;
+    }
+    .menu-button:hover {
+      background: #666;
+    }
+    h1, h2 {
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="900" height="650"></canvas>
+  <div id="hud"></div>
+  <div id="levelUpContainer" class="hidden">
+    <div id="levelUpText">레벨 업! 업그레이드를 선택하세요:</div>
+    <div id="levelUpOptions"></div>
+  </div>
+  <!-- 메인 메뉴 오버레이 -->
+  <div id="menuOverlay">
+    <h1>오피스 서바이버 디럭스</h1>
+    <button id="playBtn" class="menu-button">게임 시작</button>
+    <button id="helpBtn" class="menu-button">도움말</button>
+  </div>
+  <!-- 도움말 오버레이 -->
+  <div id="helpOverlay" class="hidden">
+    <h2>도움말</h2>
+    <p style="max-width:600px; line-height:1.4;">
+      이동: WASD 혹은 방향키<br>
+      공격: 자동 사격<br>
+      목표: 상사들과 부하들을 피하고 처치하며 경험치를 모아 레벨업하세요.<br>
+      레벨업 시 3가지 업그레이드 중 하나를 선택해 더 강해질 수 있습니다.<br>
+      일정 시간 뒤에는 보스가 등장합니다. 폭탄, 회전 칼, 수호성 등 특수 무기를 이용해 보스를 격파하세요!<br>
+    </p>
+    <button id="backBtn" class="menu-button">뒤로 가기</button>
+  </div>
+
+  <script>
+    // 게임 상태 변수
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const hud = document.getElementById('hud');
+    const levelUpContainer = document.getElementById('levelUpContainer');
+    const levelUpOptionsDiv = document.getElementById('levelUpOptions');
+    const menuOverlay = document.getElementById('menuOverlay');
+    const helpOverlay = document.getElementById('helpOverlay');
+    const playBtn = document.getElementById('playBtn');
+    const helpBtn = document.getElementById('helpBtn');
+    const backBtn = document.getElementById('backBtn');
+
+    // 게임이 실제 플레이 중인지 여부
+    let gameRunning = false;
+    // 메뉴에서 게임이 시작되었는지 여부
+    let started = false;
+    let frame = 0;
+    let gameTime = 0; // 초 단위 시간
+
+    // 키 입력 관리
+    const keys = {};
+    window.addEventListener('keydown', e => { keys[e.key] = true; });
+    window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    // 플레이어 오브젝트
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      r: 15,
+      speed: 3.5,
+      hp: 100,
+      maxHp: 100,
+      exp: 0,
+      level: 1,
+      nextLevelExp: 30,
+      shootCooldown: 0,
+      fireRate: 20,
+      damage: 10,
+      orbitKnives: 0,
+      bombs: 0,
+      evolutionCount: 0,
+      guardianUnlocked: false,
+      guardianAngle: 0,
+      guardianRadius: 0,
+      guardianDamage: 0,
+    };
+
+    // 오브젝트 배열
+    const enemies = [];
+    const bullets = [];
+    const orbs = [];
+    const knives = [];
+    const bombs = [];
+    const particles = [];
+    let boss = null;
+    const bossBullets = [];
+
+    // 업그레이드 목록 정의
+    const upgradeList = [
+      {
+        id: 'increaseDamage',
+        name: '공격력 증가',
+        desc: '총알 피해가 5 증가합니다.',
+        apply: () => { player.damage += 5; player.evolutionCount++; }
+      },
+      {
+        id: 'increaseFireRate',
+        name: '연사 속도 증가',
+        desc: '총알 발사 간격이 빨라집니다.',
+        apply: () => { if (player.fireRate > 5) player.fireRate -= 3; player.evolutionCount++; }
+      },
+      {
+        id: 'increaseSpeed',
+        name: '이동 속도 증가',
+        desc: '이동 속도가 0.5 증가합니다.',
+        apply: () => { player.speed += 0.5; }
+      },
+      {
+        id: 'increaseHP',
+        name: '체력 증가',
+        desc: '최대 체력이 20 증가하고 현재 체력을 전부 회복합니다.',
+        apply: () => { player.maxHp += 20; player.hp = player.maxHp; }
+      },
+      {
+        id: 'orbitKnife',
+        name: '회전 칼',
+        desc: '주변을 도는 칼이 추가되어 근접 피해를 줍니다.',
+        apply: () => { player.orbitKnives += 1; spawnKnife(); player.evolutionCount++; }
+      },
+      {
+        id: 'bomb',
+        name: '폭탄',
+        desc: '폭탄이 추가되어 일정 간격으로 폭발을 일으킵니다.',
+        apply: () => { player.bombs += 1; player.evolutionCount++; }
+      },
+    ];
+
+    // 레벨업 UI 표시
+    function showLevelUp() {
+      // 게임 일시중지
+      gameRunning = false;
+      levelUpContainer.classList.remove('hidden');
+      levelUpOptionsDiv.innerHTML = '';
+      // 랜덤한 3가지 업그레이드 표시
+      const choices = [];
+      const pool = upgradeList.slice();
+      for (let i = 0; i < 3 && pool.length > 0; i++) {
+        const idx = Math.floor(Math.random() * pool.length);
+        choices.push(pool.splice(idx, 1)[0]);
+      }
+      choices.forEach(upg => {
+        const option = document.createElement('div');
+        option.className = 'upgrade-option';
+        option.innerHTML = `<strong>${upg.name}</strong><br>${upg.desc}`;
+        option.onclick = () => {
+          upg.apply();
+          // 수호성(guardian) 해제 조건 확인
+          if (!player.guardianUnlocked && player.evolutionCount >= 3) {
+            unlockGuardian();
+          }
+          levelUpContainer.classList.add('hidden');
+          gameRunning = true;
+        };
+        levelUpOptionsDiv.appendChild(option);
+      });
+    }
+
+    // 수호성 해제
+    function unlockGuardian() {
+      player.guardianUnlocked = true;
+      player.guardianRadius = 90;
+      player.guardianDamage = 35;
+      player.guardianAngle = 0;
+    }
+
+    // 회전 칼 생성
+    function spawnKnife() {
+      const angle = Math.random() * Math.PI * 2;
+      knives.push({ angle, r: 5 + player.level, dist: player.r + 40, dmg: 10 + player.level * 2 });
+    }
+
+    // 적 스폰
+    function spawnEnemy() {
+      const side = Math.floor(Math.random() * 4);
+      let x, y;
+      if (side === 0) { x = Math.random() * canvas.width; y = -20; }
+      else if (side === 1) { x = Math.random() * canvas.width; y = canvas.height + 20; }
+      else if (side === 2) { x = -20; y = Math.random() * canvas.height; }
+      else { x = canvas.width + 20; y = Math.random() * canvas.height; }
+      const size = 12 + Math.random() * 10;
+      enemies.push({ x, y, r: size, speed: 1 + Math.random() * 0.6, hp: 30 + size * 2 });
+    }
+
+    // 경험치 오브 스폰
+    function spawnOrb(x, y, amount = 5) {
+      orbs.push({ x, y, r: 4, amount });
+    }
+
+    // 폭발 파티클 스폰
+    function spawnParticles(x, y, color = '#ffaa00', count = 15) {
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const spd = Math.random() * 3 + 1;
+        particles.push({ x, y, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd, life: 30, color });
+      }
+    }
+
+    // 폭탄 배치
+    function spawnBomb() {
+      bombs.push({ x: player.x, y: player.y, timer: 180 });
+    }
+
+    // 보스 스폰
+    function spawnBoss() {
+      boss = { x: canvas.width / 2, y: -60, r: 40, hp: 800, speed: 1.2, shootCooldown: 0 };
+    }
+
+    // 게임 업데이트
+    function update() {
+      // 게임이 플레이 중이 아니면 업데이트 중지
+      if (!gameRunning) return;
+      frame++;
+      if (frame % 60 === 0) gameTime++;
+
+      // 적/오브 스폰
+      if (frame % 40 === 0) spawnEnemy();
+      if (frame % 90 === 0) spawnOrb(Math.random() * canvas.width, Math.random() * canvas.height);
+
+      // 일정 시간이 지나면 보스 등장
+      if (!boss && gameTime >= 60) spawnBoss();
+
+      // 플레이어 폭탄 자동 배치
+      if (player.bombs > 0 && frame % 180 === 0) spawnBomb();
+
+      // 플레이어 이동
+      let dx = 0, dy = 0;
+      if (keys['ArrowLeft'] || keys['a']) dx -= 1;
+      if (keys['ArrowRight'] || keys['d']) dx += 1;
+      if (keys['ArrowUp'] || keys['w']) dy -= 1;
+      if (keys['ArrowDown'] || keys['s']) dy += 1;
+      const length = Math.hypot(dx, dy);
+      if (length > 0) {
+        player.x += (dx / length) * player.speed;
+        player.y += (dy / length) * player.speed;
+      }
+      // 화면 밖 이동 제한
+      player.x = Math.max(player.r, Math.min(canvas.width - player.r, player.x));
+      player.y = Math.max(player.r, Math.min(canvas.height - player.r, player.y));
+
+      // 총알 발사
+      if (player.shootCooldown > 0) player.shootCooldown--;
+      else {
+        if (enemies.length > 0 || boss) {
+          // 가장 가까운 적 찾기
+          let target = boss;
+          let minDist = target ? ((target.x - player.x) ** 2 + (target.y - player.y) ** 2) : Infinity;
+          enemies.forEach(e => {
+            const d = (e.x - player.x) ** 2 + (e.y - player.y) ** 2;
+            if (d < minDist) {
+              minDist = d;
+              target = e;
+            }
+          });
+          if (target) {
+            const dirX = target.x - player.x;
+            const dirY = target.y - player.y;
+            const dist = Math.hypot(dirX, dirY);
+            const spd = 6 + player.level * 0.2;
+            bullets.push({ x: player.x, y: player.y, vx: (dirX / dist) * spd, vy: (dirY / dist) * spd, r: 5 + Math.floor(player.level / 3), dmg: player.damage });
+            player.shootCooldown = player.fireRate;
+          }
+        }
+      }
+
+      // 회전 칼 움직임
+      knives.forEach(k => {
+        k.angle += 0.06 + player.level * 0.002;
+        k.x = player.x + Math.cos(k.angle) * k.dist;
+        k.y = player.y + Math.sin(k.angle) * k.dist;
+      });
+
+      // 수호성 업데이트
+      if (player.guardianUnlocked) {
+        player.guardianAngle += 0.04 + player.level * 0.001;
+        // 충돌 처리
+        const gx = player.x + Math.cos(player.guardianAngle) * player.guardianRadius;
+        const gy = player.y + Math.sin(player.guardianAngle) * player.guardianRadius;
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          const dist = Math.hypot(e.x - gx, e.y - gy);
+          if (dist < e.r + 12) {
+            e.hp -= player.guardianDamage;
+            spawnParticles(gx, gy, '#00ffff', 5);
+            if (e.hp <= 0) {
+              spawnParticles(e.x, e.y, '#ff4444', 15);
+              spawnOrb(e.x, e.y, 10);
+              enemies.splice(j, 1);
+            }
+          }
+        }
+        if (boss) {
+          const dist = Math.hypot(boss.x - gx, boss.y - gy);
+          if (dist < boss.r + 12) {
+            boss.hp -= player.guardianDamage;
+            spawnParticles(gx, gy, '#00ffff', 5);
+          }
+        }
+      }
+
+      // 폭탄 카운트다운 및 폭발 처리
+      for (let i = bombs.length - 1; i >= 0; i--) {
+        const b = bombs[i];
+        b.timer--;
+        if (b.timer <= 0) {
+          spawnParticles(b.x, b.y, '#ff8822', 25);
+          enemies.forEach((e, idx) => {
+            const dist = Math.hypot(e.x - b.x, e.y - b.y);
+            if (dist < 60) e.hp -= 80;
+          });
+          if (boss) {
+            const dist = Math.hypot(boss.x - b.x, boss.y - b.y);
+            if (dist < 80) boss.hp -= 150;
+          }
+          bombs.splice(i, 1);
+        }
+      }
+
+      // 총알 이동 및 충돌
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.x += b.vx;
+        b.y += b.vy;
+        // 화면 밖 제거
+        if (b.x < -20 || b.x > canvas.width + 20 || b.y < -20 || b.y > canvas.height + 20) {
+          bullets.splice(i, 1);
+          continue;
+        }
+        let hit = false;
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          const dist = Math.hypot(e.x - b.x, e.y - b.y);
+          if (dist < e.r + b.r) {
+            e.hp -= b.dmg;
+            bullets.splice(i, 1);
+            hit = true;
+            if (e.hp <= 0) {
+              spawnParticles(e.x, e.y, '#ff4444', 20);
+              spawnOrb(e.x, e.y, 10);
+              enemies.splice(j, 1);
+            }
+            break;
+          }
+        }
+        if (hit) continue;
+        if (boss) {
+          const dist = Math.hypot(boss.x - b.x, boss.y - b.y);
+          if (dist < boss.r + b.r) {
+            boss.hp -= b.dmg;
+            bullets.splice(i, 1);
+            spawnParticles(b.x, b.y, '#ffbb22', 8);
+            continue;
+          }
+        }
+      }
+
+      // 칼과 적 충돌
+      for (let k = 0; k < knives.length; k++) {
+        const knife = knives[k];
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          const dist = Math.hypot(e.x - knife.x, e.y - knife.y);
+          if (dist < e.r + knife.r) {
+            e.hp -= knife.dmg;
+            spawnParticles(knife.x, knife.y, '#88ff88', 5);
+            if (e.hp <= 0) {
+              spawnParticles(e.x, e.y, '#ff4444', 15);
+              spawnOrb(e.x, e.y, 10);
+              enemies.splice(j, 1);
+            }
+          }
+        }
+        if (boss) {
+          const dist = Math.hypot(boss.x - knife.x, boss.y - knife.y);
+          if (dist < boss.r + knife.r) {
+            boss.hp -= knife.dmg;
+            spawnParticles(knife.x, knife.y, '#88ff88', 5);
+          }
+        }
+      }
+
+      // 적 이동 및 플레이어 충돌
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        const vx = player.x - e.x;
+        const vy = player.y - e.y;
+        const d = Math.hypot(vx, vy);
+        e.x += (vx / d) * e.speed;
+        e.y += (vy / d) * e.speed;
+        // 플레이어와 충돌
+        const dist = Math.hypot(e.x - player.x, e.y - player.y);
+        if (dist < e.r + player.r) {
+          player.hp -= 0.5;
+          e.x -= (vx / d) * 4;
+          e.y -= (vy / d) * 4;
+          if (player.hp <= 0) {
+            alert('게임 오버! 새로고침하여 다시 시작하세요.');
+            window.location.reload();
+            return;
+          }
+        }
+      }
+
+      // 보스 이동 및 공격
+      if (boss) {
+        const vx = player.x - boss.x;
+        const vy = player.y - boss.y;
+        const d = Math.hypot(vx, vy);
+        boss.x += (vx / d) * boss.speed;
+        boss.y += (vy / d) * boss.speed;
+        if (boss.shootCooldown > 0) boss.shootCooldown--;
+        else {
+          const bulletsNum = 8 + Math.floor(gameTime / 20);
+          for (let i = 0; i < bulletsNum; i++) {
+            const angle = (Math.PI * 2 * i) / bulletsNum;
+            const spd = 2 + gameTime * 0.02;
+            bossBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd, r: 6, dmg: 10 });
+          }
+          boss.shootCooldown = 120 - gameTime;
+          if (boss.shootCooldown < 30) boss.shootCooldown = 30;
+        }
+        // 보스와 플레이어 충돌
+        const distBP = Math.hypot(boss.x - player.x, boss.y - player.y);
+        if (distBP < boss.r + player.r) {
+          player.hp -= 1;
+          if (player.hp <= 0) {
+            alert('보스에게 패배했습니다! 새로고침하여 다시 시작하세요.');
+            window.location.reload();
+            return;
+          }
+        }
+        // 보스 HP 0시 처리
+        if (boss.hp <= 0) {
+          spawnParticles(boss.x, boss.y, '#ffdd33', 50);
+          spawnOrb(boss.x, boss.y, 50);
+          boss = null;
+        }
+      }
+
+      // 보스 탄환 이동 및 충돌
+      for (let i = bossBullets.length - 1; i >= 0; i--) {
+        const b = bossBullets[i];
+        b.x += b.vx;
+        b.y += b.vy;
+        if (b.x < -20 || b.x > canvas.width + 20 || b.y < -20 || b.y > canvas.height + 20) {
+          bossBullets.splice(i, 1);
+          continue;
+        }
+        const dist = Math.hypot(b.x - player.x, b.y - player.y);
+        if (dist < b.r + player.r) {
+          player.hp -= b.dmg;
+          bossBullets.splice(i, 1);
+          spawnParticles(b.x, b.y, '#ff5555', 8);
+          if (player.hp <= 0) {
+            alert('보스에게 패배했습니다! 새로고침하여 다시 시작하세요.');
+            window.location.reload();
+            return;
+          }
+        }
+      }
+
+      // 경험치 오브와 플레이어 충돌
+      for (let i = orbs.length - 1; i >= 0; i--) {
+        const o = orbs[i];
+        const dist = Math.hypot(o.x - player.x, o.y - player.y);
+        if (dist < o.r + player.r) {
+          player.exp += o.amount;
+          orbs.splice(i, 1);
+          // 레벨업 체크
+          if (player.exp >= player.nextLevelExp) {
+            player.exp -= player.nextLevelExp;
+            player.level++;
+            player.nextLevelExp = Math.floor(player.nextLevelExp * 1.5);
+            showLevelUp();
+          }
+        }
+      }
+
+      // 파티클 업데이트
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+    }
+
+    // 별 그리기 함수
+    function drawStar(cx, cy, spikes, outerR, innerR, color) {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      let rot = Math.PI / 2 * 3;
+      const step = Math.PI / spikes;
+      ctx.moveTo(cx, cy - outerR);
+      for (let i = 0; i < spikes; i++) {
+        ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+        rot += step;
+        ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+        rot += step;
+      }
+      ctx.lineTo(cx, cy - outerR);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 게임 그리기
+    function draw() {
+      // 캔버스 클리어
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 배경: 어두운 스타필드
+      ctx.fillStyle = '#0b0b1a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      for (let i = 0; i < 100; i++) {
+        const x = (i * 123 + frame * 0.5) % canvas.width;
+        const y = (i * 71 + frame * 0.3) % canvas.height;
+        ctx.fillRect(x, y, 2, 2);
+      }
+
+      // 폭탄 표시
+      bombs.forEach(b => {
+        ctx.fillStyle = '#ffcc00';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 경험치 오브
+      orbs.forEach(o => {
+        const grad = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r);
+        grad.addColorStop(0, '#66ff66');
+        grad.addColorStop(1, '#006600');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 파티클
+      particles.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = p.life / 30;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+
+      // 적
+      enemies.forEach(e => {
+        const grad = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.r);
+        grad.addColorStop(0, '#ff6666');
+        grad.addColorStop(1, '#550000');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 보스
+      if (boss) {
+        const grad = ctx.createRadialGradient(boss.x, boss.y, 0, boss.x, boss.y, boss.r);
+        grad.addColorStop(0, '#8844ff');
+        grad.addColorStop(1, '#220044');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(boss.x, boss.y, boss.r, 0, Math.PI * 2);
+        ctx.fill();
+        // 보스 HP 바
+        ctx.fillStyle = '#440044';
+        ctx.fillRect(boss.x - 40, boss.y - boss.r - 12, 80, 6);
+        ctx.fillStyle = '#aa00aa';
+        ctx.fillRect(boss.x - 40, boss.y - boss.r - 12, (boss.hp / 800) * 80, 6);
+      }
+
+      // 보스 탄환
+      bossBullets.forEach(b => {
+        ctx.fillStyle = '#ff7777';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 플레이어 총알
+      bullets.forEach(b => {
+        const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+        grad.addColorStop(0, '#ffffaa');
+        grad.addColorStop(1, '#666600');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 회전 칼
+      knives.forEach(k => {
+        ctx.fillStyle = '#88ff88';
+        ctx.beginPath();
+        ctx.arc(k.x, k.y, k.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 수호성 그리기
+      if (player.guardianUnlocked) {
+        const gx = player.x + Math.cos(player.guardianAngle) * player.guardianRadius;
+        const gy = player.y + Math.sin(player.guardianAngle) * player.guardianRadius;
+        drawStar(gx, gy, 5, 15, 7, '#00ffff');
+      }
+
+      // 플레이어 그리기
+      const gradPlayer = ctx.createRadialGradient(player.x, player.y, 0, player.x, player.y, player.r);
+      gradPlayer.addColorStop(0, '#00ccff');
+      gradPlayer.addColorStop(1, '#003344');
+      ctx.fillStyle = gradPlayer;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+      ctx.fill();
+      // 플레이어 HP 바
+      ctx.fillStyle = '#333';
+      ctx.fillRect(player.x - 25, player.y - player.r - 12, 50, 4);
+      ctx.fillStyle = '#00cc00';
+      ctx.fillRect(player.x - 25, player.y - player.r - 12, (player.hp / player.maxHp) * 50, 4);
+
+      // HUD 표시
+      if (started) {
+        hud.textContent = `레벨: ${player.level}  경험치: ${player.exp}/${player.nextLevelExp}  체력: ${Math.floor(player.hp)}/${player.maxHp}  경과: ${gameTime}s`;
+      } else {
+        hud.textContent = '';
+      }
+    }
+
+    // 게임 루프
+    function gameLoop() {
+      if (started) update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // 메뉴 버튼 이벤트
+    playBtn.addEventListener('click', () => {
+      menuOverlay.classList.add('hidden');
+      helpOverlay.classList.add('hidden');
+      // 게임 상태 리셋
+      gameRunning = true;
+      started = true;
+    });
+    helpBtn.addEventListener('click', () => {
+      helpOverlay.classList.remove('hidden');
+      menuOverlay.classList.add('hidden');
+    });
+    backBtn.addEventListener('click', () => {
+      helpOverlay.classList.add('hidden');
+      menuOverlay.classList.remove('hidden');
+    });
+
+    // 게임 시작
+    gameLoop();
+  </script>
+</body>
+</html>
