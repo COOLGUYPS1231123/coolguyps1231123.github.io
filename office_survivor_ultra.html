@@ -164,6 +164,7 @@
       guardianAngle: 0,
       guardianRadius: 0,
       guardianDamage: 0,
+      hitTimer: 0,
     };
 
     // 오브젝트 배열
@@ -171,7 +172,7 @@
     const bullets = [];
     const orbs = [];
     const knives = [];
-    const bombs = [];
+    const bombsArr = [];
     const particles = [];
     let boss = null;
     const bossBullets = [];
@@ -288,7 +289,7 @@
 
     // 폭탄 배치
     function spawnBomb() {
-      bombs.push({ x: player.x, y: player.y, timer: 180 });
+      bombsArr.push({ x: player.x, y: player.y, timer: 180 });
     }
 
     // 보스 스폰
@@ -345,238 +346,200 @@
           if (target) {
             const dirX = target.x - player.x;
             const dirY = target.y - player.y;
-            const dist = Math.hypot(dirX, dirY);
-            const spd = 6 + player.level * 0.2;
-            bullets.push({ x: player.x, y: player.y, vx: (dirX / dist) * spd, vy: (dirY / dist) * spd, r: 5 + Math.floor(player.level / 3), dmg: player.damage });
+            const d = Math.hypot(dirX, dirY);
+            bullets.push({ x: player.x, y: player.y, vx: (dirX / d) * 6, vy: (dirY / d) * 6, r: 4 });
             player.shootCooldown = player.fireRate;
           }
         }
       }
 
-      // 회전 칼 움직임
-      knives.forEach(k => {
-        k.angle += 0.06 + player.level * 0.002;
-        k.x = player.x + Math.cos(k.angle) * k.dist;
-        k.y = player.y + Math.sin(k.angle) * k.dist;
+      // 총알 업데이트
+      bullets.forEach((b, i) => {
+        b.x += b.vx;
+        b.y += b.vy;
+        // 적과 충돌 체크
+        enemies.forEach((e, ei) => {
+          const dist = Math.hypot(b.x - e.x, b.y - e.y);
+          if (dist < b.r + e.r) {
+            e.hp -= player.damage;
+            bullets.splice(i, 1);
+          }
+        });
+        // 보스와 충돌
+        if (boss) {
+          const dist = Math.hypot(b.x - boss.x, b.y - boss.y);
+          if (dist < b.r + boss.r) {
+            boss.hp -= player.damage;
+            bullets.splice(i, 1);
+          }
+        }
       });
 
-      // 수호성 업데이트
-      if (player.guardianUnlocked) {
-        player.guardianAngle += 0.04 + player.level * 0.001;
-        // 충돌 처리
-        const gx = player.x + Math.cos(player.guardianAngle) * player.guardianRadius;
-        const gy = player.y + Math.sin(player.guardianAngle) * player.guardianRadius;
-        for (let j = enemies.length - 1; j >= 0; j--) {
-          const e = enemies[j];
-          const dist = Math.hypot(e.x - gx, e.y - gy);
-          if (dist < e.r + 12) {
-            e.hp -= player.guardianDamage;
-            spawnParticles(gx, gy, '#00ffff', 5);
-            if (e.hp <= 0) {
-              spawnParticles(e.x, e.y, '#ff4444', 15);
-              spawnOrb(e.x, e.y, 10);
-              enemies.splice(j, 1);
-            }
-          }
-        }
-        if (boss) {
-          const dist = Math.hypot(boss.x - gx, boss.y - gy);
-          if (dist < boss.r + 12) {
-            boss.hp -= player.guardianDamage;
-            spawnParticles(gx, gy, '#00ffff', 5);
-          }
-        }
-      }
-
-      // 폭탄 카운트다운 및 폭발 처리
-      for (let i = bombs.length - 1; i >= 0; i--) {
-        const b = bombs[i];
-        b.timer--;
-        if (b.timer <= 0) {
-          spawnParticles(b.x, b.y, '#ff8822', 25);
-          enemies.forEach((e, idx) => {
-            const dist = Math.hypot(e.x - b.x, e.y - b.y);
-            if (dist < 60) e.hp -= 80;
-          });
-          if (boss) {
-            const dist = Math.hypot(boss.x - b.x, boss.y - b.y);
-            if (dist < 80) boss.hp -= 150;
-          }
-          bombs.splice(i, 1);
-        }
-      }
-
-      // 총알 이동 및 충돌
-      for (let i = bullets.length - 1; i >= 0; i--) {
-        const b = bullets[i];
-        b.x += b.vx;
-        b.y += b.vy;
-        // 화면 밖 제거
-        if (b.x < -20 || b.x > canvas.width + 20 || b.y < -20 || b.y > canvas.height + 20) {
-          bullets.splice(i, 1);
-          continue;
-        }
-        let hit = false;
-        for (let j = enemies.length - 1; j >= 0; j--) {
-          const e = enemies[j];
-          const dist = Math.hypot(e.x - b.x, e.y - b.y);
-          if (dist < e.r + b.r) {
-            e.hp -= b.dmg;
-            bullets.splice(i, 1);
-            hit = true;
-            if (e.hp <= 0) {
-              spawnParticles(e.x, e.y, '#ff4444', 20);
-              spawnOrb(e.x, e.y, 10);
-              enemies.splice(j, 1);
-            }
-            break;
-          }
-        }
-        if (hit) continue;
-        if (boss) {
-          const dist = Math.hypot(boss.x - b.x, boss.y - b.y);
-          if (dist < boss.r + b.r) {
-            boss.hp -= b.dmg;
-            bullets.splice(i, 1);
-            spawnParticles(b.x, b.y, '#ffbb22', 8);
-            continue;
-          }
-        }
-      }
-
-      // 칼과 적 충돌
-      for (let k = 0; k < knives.length; k++) {
-        const knife = knives[k];
-        for (let j = enemies.length - 1; j >= 0; j--) {
-          const e = enemies[j];
-          const dist = Math.hypot(e.x - knife.x, e.y - knife.y);
-          if (dist < e.r + knife.r) {
-            e.hp -= knife.dmg;
-            spawnParticles(knife.x, knife.y, '#88ff88', 5);
-            if (e.hp <= 0) {
-              spawnParticles(e.x, e.y, '#ff4444', 15);
-              spawnOrb(e.x, e.y, 10);
-              enemies.splice(j, 1);
-            }
-          }
-        }
-        if (boss) {
-          const dist = Math.hypot(boss.x - knife.x, boss.y - knife.y);
-          if (dist < boss.r + knife.r) {
-            boss.hp -= knife.dmg;
-            spawnParticles(knife.x, knife.y, '#88ff88', 5);
-          }
-        }
-      }
-
-      // 적 이동 및 플레이어 충돌
-      for (let i = enemies.length - 1; i >= 0; i--) {
-        const e = enemies[i];
-        const vx = player.x - e.x;
-        const vy = player.y - e.y;
-        const d = Math.hypot(vx, vy);
-        e.x += (vx / d) * e.speed;
-        e.y += (vy / d) * e.speed;
+      // 적 업데이트
+      enemies.forEach((e, i) => {
+        // 플레이어 추적
+        const dirX = player.x - e.x;
+        const dirY = player.y - e.y;
+        const d = Math.hypot(dirX, dirY);
+        e.x += (dirX / d) * e.speed;
+        e.y += (dirY / d) * e.speed;
         // 플레이어와 충돌
-        const dist = Math.hypot(e.x - player.x, e.y - player.y);
-        if (dist < e.r + player.r) {
-          player.hp -= 0.5;
-          e.x -= (vx / d) * 4;
-          e.y -= (vy / d) * 4;
-          if (player.hp <= 0) {
-            alert('게임 오버! 새로고침하여 다시 시작하세요.');
-            window.location.reload();
-            return;
-          }
+        if (d < e.r + player.r) {
+          player.hp -= 10;
+          player.hitTimer = 15;
+          spawnParticles(e.x, e.y);
+          enemies.splice(i, 1);
         }
-      }
+        // HP 0이면 삭제 및 경험치 오브 생성
+        if (e.hp <= 0) {
+          spawnParticles(e.x, e.y);
+          spawnOrb(e.x, e.y, Math.floor(e.r));
+          enemies.splice(i, 1);
+        }
+      });
 
-      // 보스 이동 및 공격
-      if (boss) {
-        const vx = player.x - boss.x;
-        const vy = player.y - boss.y;
-        const d = Math.hypot(vx, vy);
-        boss.x += (vx / d) * boss.speed;
-        boss.y += (vy / d) * boss.speed;
-        if (boss.shootCooldown > 0) boss.shootCooldown--;
-        else {
-          const bulletsNum = 8 + Math.floor(gameTime / 20);
-          for (let i = 0; i < bulletsNum; i++) {
-            const angle = (Math.PI * 2 * i) / bulletsNum;
-            const spd = 2 + gameTime * 0.02;
-            bossBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd, r: 6, dmg: 10 });
-          }
-          boss.shootCooldown = 120 - gameTime;
-          if (boss.shootCooldown < 30) boss.shootCooldown = 30;
-        }
-        // 보스와 플레이어 충돌
-        const distBP = Math.hypot(boss.x - player.x, boss.y - player.y);
-        if (distBP < boss.r + player.r) {
-          player.hp -= 1;
-          if (player.hp <= 0) {
-            alert('보스에게 패배했습니다! 새로고침하여 다시 시작하세요.');
-            window.location.reload();
-            return;
-          }
-        }
-        // 보스 HP 0시 처리
-        if (boss.hp <= 0) {
-          spawnParticles(boss.x, boss.y, '#ffdd33', 50);
-          spawnOrb(boss.x, boss.y, 50);
-          boss = null;
-        }
-      }
-
-      // 보스 탄환 이동 및 충돌
-      for (let i = bossBullets.length - 1; i >= 0; i--) {
-        const b = bossBullets[i];
-        b.x += b.vx;
-        b.y += b.vy;
-        if (b.x < -20 || b.x > canvas.width + 20 || b.y < -20 || b.y > canvas.height + 20) {
-          bossBullets.splice(i, 1);
-          continue;
-        }
-        const dist = Math.hypot(b.x - player.x, b.y - player.y);
-        if (dist < b.r + player.r) {
-          player.hp -= b.dmg;
-          bossBullets.splice(i, 1);
-          spawnParticles(b.x, b.y, '#ff5555', 8);
-          if (player.hp <= 0) {
-            alert('보스에게 패배했습니다! 새로고침하여 다시 시작하세요.');
-            window.location.reload();
-            return;
-          }
-        }
-      }
-
-      // 경험치 오브와 플레이어 충돌
-      for (let i = orbs.length - 1; i >= 0; i--) {
-        const o = orbs[i];
-        const dist = Math.hypot(o.x - player.x, o.y - player.y);
+      // 오브 업데이트
+      orbs.forEach((o, i) => {
+        // 플레이어와 충돌
+        const dist = Math.hypot(player.x - o.x, player.y - o.y);
         if (dist < o.r + player.r) {
           player.exp += o.amount;
           orbs.splice(i, 1);
           // 레벨업 체크
-          if (player.exp >= player.nextLevelExp) {
+          while (player.exp >= player.nextLevelExp) {
             player.exp -= player.nextLevelExp;
             player.level++;
-            player.nextLevelExp = Math.floor(player.nextLevelExp * 1.5);
+            player.nextLevelExp = Math.floor(player.nextLevelExp * 1.3);
             showLevelUp();
+          }
+        }
+      });
+
+      // 회전 칼 업데이트
+      knives.forEach((k, i) => {
+        k.angle += 0.08;
+        k.x = player.x + Math.cos(k.angle) * k.dist;
+        k.y = player.y + Math.sin(k.angle) * k.dist;
+        // 적과 충돌
+        enemies.forEach((e, ei) => {
+          const d = Math.hypot(k.x - e.x, k.y - e.y);
+          if (d < k.r + e.r) {
+            e.hp -= k.dmg;
+          }
+        });
+        // 보스와 충돌
+        if (boss) {
+          const d = Math.hypot(k.x - boss.x, k.y - boss.y);
+          if (d < k.r + boss.r) {
+            boss.hp -= k.dmg;
+          }
+        }
+      });
+
+      // 폭탄 업데이트
+      bombsArr.forEach((b, i) => {
+        b.timer--;
+        if (b.timer <= 0) {
+          // 폭발
+          spawnParticles(b.x, b.y, '#ffaa00', 25);
+          enemies.forEach((e, ei) => {
+            const dist = Math.hypot(b.x - e.x, b.y - e.y);
+            if (dist < 100) {
+              e.hp -= 50;
+            }
+          });
+          if (boss) {
+            const dist = Math.hypot(b.x - boss.x, b.y - boss.y);
+            if (dist < 100) boss.hp -= 50;
+          }
+          bombsArr.splice(i, 1);
+        }
+      });
+
+      // 수호성 업데이트
+      if (player.guardianUnlocked) {
+        player.guardianAngle += 0.05;
+        const gx = player.x + Math.cos(player.guardianAngle) * player.guardianRadius;
+        const gy = player.y + Math.sin(player.guardianAngle) * player.guardianRadius;
+        // 적과 충돌
+        enemies.forEach((e, ei) => {
+          const d = Math.hypot(gx - e.x, gy - e.y);
+          if (d < 10 + e.r) {
+            e.hp -= player.guardianDamage;
+          }
+        });
+        // 보스와 충돌
+        if (boss) {
+          const d = Math.hypot(gx - boss.x, gy - boss.y);
+          if (d < 10 + boss.r) {
+            boss.hp -= player.guardianDamage;
           }
         }
       }
 
+      // 보스 업데이트
+      if (boss) {
+        // 이동: 아래로 내려오다가 일정 위치에서 멈춤
+        if (boss.y < 80) boss.y += boss.speed;
+        else {
+          // 플레이어를 향해 약간 이동
+          const dirX = player.x - boss.x;
+          const dirY = player.y - boss.y;
+          const d = Math.hypot(dirX, dirY);
+          if (d > 200) {
+            boss.x += (dirX / d) * boss.speed;
+            boss.y += (dirY / d) * boss.speed;
+          }
+          // 탄환 발사
+          boss.shootCooldown--;
+          if (boss.shootCooldown <= 0) {
+            // 6발 방사형 총알
+            for (let j = 0; j < 6; j++) {
+              const angle = (j / 6) * Math.PI * 2;
+              bossBullets.push({ x: boss.x, y: boss.y, vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4, r: 5 });
+            }
+            boss.shootCooldown = 90;
+          }
+        }
+        // HP 0이면 보스 제거 및 경험치 오브 대량 생성
+        if (boss.hp <= 0) {
+          spawnParticles(boss.x, boss.y, '#ccccff', 40);
+          for (let j = 0; j < 20; j++) {
+            spawnOrb(boss.x + Math.random() * 80 - 40, boss.y + Math.random() * 80 - 40, 15);
+          }
+          boss = null;
+        }
+      }
+
+      // 보스 탄환 업데이트
+      bossBullets.forEach((b, i) => {
+        b.x += b.vx;
+        b.y += b.vy;
+        // 플레이어와 충돌
+        const d = Math.hypot(b.x - player.x, b.y - player.y);
+        if (d < b.r + player.r) {
+          player.hp -= 15;
+          player.hitTimer = 15;
+          bossBullets.splice(i, 1);
+        }
+      });
+
       // 파티클 업데이트
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
+      particles.forEach((p, i) => {
         p.x += p.vx;
         p.y += p.vy;
         p.life--;
         if (p.life <= 0) particles.splice(i, 1);
+      });
+
+      // HP 0이면 게임 오버
+      if (player.hp <= 0) {
+        alert('게임 오버!');
+        location.reload();
       }
     }
 
-    // 별 그리기 함수
+    // 별 그리기 함수: x,y 좌표에 n각의 별을 그립니다.
     function drawStar(cx, cy, spikes, outerR, innerR, color) {
       ctx.save();
       ctx.fillStyle = color;
@@ -596,6 +559,177 @@
       ctx.restore();
     }
 
+    // 플레이어 캐릭터를 그리는 함수. 머리, 몸통, 머리카락/모자, 안경, 콧수염을 세세하게 묘사해
+    // 게임의 주인공에 더 개성이 느껴지도록 합니다.
+    function drawHero() {
+      const r = player.r;
+      const x = player.x;
+      const y = player.y;
+      ctx.save();
+      // 체력 비율에 따라 얼굴 표정을 조절할 값
+      const hpRatio = player.hp / player.maxHp;
+      // 몸통: 큰 원으로 기본 형태를 그립니다.
+      ctx.fillStyle = '#2a8ccf';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      // 얼굴: 몸통 상단에 살색 원을 그립니다.
+      ctx.fillStyle = '#f5d1b4';
+      ctx.beginPath();
+      ctx.arc(x, y - r * 0.3, r * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      // 머리카락/모자: 얼굴 위쪽 반원을 그립니다.
+      ctx.fillStyle = '#1e326d';
+      ctx.beginPath();
+      ctx.arc(x, y - r * 0.6, r * 0.6, Math.PI, 0);
+      ctx.fill();
+      // 안경: 두 개의 작은 원과 테를 그립니다.
+      const gR = r * 0.18;
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#222222';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x - r * 0.25, y - r * 0.35, gR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x + r * 0.25, y - r * 0.35, gR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // 코: 작은 세로 직사각형
+      ctx.fillStyle = '#f0cda5';
+      ctx.fillRect(x - r * 0.03, y - r * 0.3, r * 0.06, r * 0.1);
+      // 입/표정: 체력에 따라 웃음/무표정/찡그림을 표현합니다.
+      const mouthY = y - r * 0.05;
+      const mouthW = r * 0.4;
+      if (hpRatio > 0.6) {
+        // 웃는 입 (반원)
+        ctx.strokeStyle = '#70351a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, mouthY, mouthW / 2, 0, Math.PI);
+        ctx.stroke();
+      } else if (hpRatio > 0.3) {
+        // 무표정 (직선)
+        ctx.fillStyle = '#70351a';
+        ctx.fillRect(x - mouthW / 2, mouthY - 1, mouthW, 2);
+      } else {
+        // 찡그린 입 (거꾸로 된 반원)
+        ctx.strokeStyle = '#70351a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, mouthY + r * 0.08, mouthW / 2, Math.PI, 2 * Math.PI);
+        ctx.stroke();
+      }
+      // 외곽선
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      // 피격 시 빨간 빛을 덮어 표시
+      if (player.hitTimer > 0) {
+        ctx.fillStyle = 'rgba(255,50,50,0.4)';
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // 상단 UI (체력/경험치/아이템) 표시 함수
+    function drawTopUI() {
+      ctx.save();
+      const barW = 200;
+      const barH = 12;
+      const startX = 10;
+      let curY = 10;
+      ctx.font = '11px sans-serif';
+      ctx.textBaseline = 'bottom';
+      // HP 바 배경과 채우기
+      ctx.fillStyle = '#333333';
+      ctx.fillRect(startX, curY, barW, barH);
+      ctx.fillStyle = '#008800';
+      const hpRatio = player.hp / player.maxHp;
+      ctx.fillRect(startX, curY, barW * hpRatio, barH);
+      ctx.strokeStyle = '#666666';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(startX, curY, barW, barH);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`HP ${Math.floor(player.hp)}/${player.maxHp}`, startX + 4, curY + barH - 1);
+      // EXP 바
+      curY += barH + 4;
+      ctx.fillStyle = '#333333';
+      ctx.fillRect(startX, curY, barW, barH);
+      ctx.fillStyle = '#0033aa';
+      const expRatio = player.exp / player.nextLevelExp;
+      ctx.fillRect(startX, curY, barW * Math.min(expRatio, 1), barH);
+      ctx.strokeStyle = '#666666';
+      ctx.strokeRect(startX, curY, barW, barH);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(`EXP ${player.exp}/${player.nextLevelExp}`, startX + 4, curY + barH - 1);
+      // 아이템 아이콘 (회전 칼, 폭탄, 수호성)
+      curY += barH + 6;
+      let ix = startX;
+      const iconSize = 14;
+      ctx.font = '10px sans-serif';
+      // 회전 칼 아이콘
+      if (player.orbitKnives > 0) {
+        ctx.fillStyle = '#88ff88';
+        ctx.beginPath();
+        ctx.moveTo(ix, curY + iconSize);
+        ctx.lineTo(ix + iconSize / 2, curY);
+        ctx.lineTo(ix + iconSize, curY + iconSize);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`x${player.orbitKnives}`, ix + iconSize + 2, curY + iconSize);
+        ix += 40;
+      }
+      // 폭탄 아이콘
+      if (player.bombs > 0) {
+        ctx.fillStyle = '#ffcc00';
+        ctx.beginPath();
+        ctx.arc(ix + iconSize / 2, curY + iconSize / 2, iconSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        // 도화선
+        ctx.strokeStyle = '#ffa500';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(ix + iconSize / 2, curY);
+        ctx.lineTo(ix + iconSize / 2, curY - 4);
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(`x${player.bombs}`, ix + iconSize + 2, curY + iconSize);
+        ix += 40;
+      }
+      // 수호성 아이콘 (unlock 시)
+      if (player.guardianUnlocked) {
+        // 작은 별
+        ctx.fillStyle = '#00ffff';
+        const centerX = ix + iconSize / 2;
+        const centerY = curY + iconSize / 2;
+        // 5각 별 그리기
+        ctx.beginPath();
+        let rot = Math.PI / 2 * 3;
+        const spikes = 5;
+        const outerR = iconSize / 2;
+        const innerR = outerR * 0.5;
+        ctx.moveTo(centerX, centerY - outerR);
+        for (let i = 0; i < spikes; i++) {
+          ctx.lineTo(centerX + Math.cos(rot) * outerR, centerY + Math.sin(rot) * outerR);
+          rot += Math.PI / spikes;
+          ctx.lineTo(centerX + Math.cos(rot) * innerR, centerY + Math.sin(rot) * innerR);
+          rot += Math.PI / spikes;
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('★', ix + iconSize + 2, curY + iconSize);
+      }
+      ctx.restore();
+    }
+
     // 게임 그리기
     function draw() {
       // 캔버스 클리어
@@ -606,13 +740,13 @@
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = 'rgba(255,255,255,0.05)';
       for (let i = 0; i < 100; i++) {
-        const x = (i * 123 + frame * 0.5) % canvas.width;
-        const y = (i * 71 + frame * 0.3) % canvas.height;
-        ctx.fillRect(x, y, 2, 2);
+        const sx = (i * 123 + frame * 0.5) % canvas.width;
+        const sy = (i * 71 + frame * 0.3) % canvas.height;
+        ctx.fillRect(sx, sy, 2, 2);
       }
 
       // 폭탄 표시
-      bombs.forEach(b => {
+      bombsArr.forEach(b => {
         ctx.fillStyle = '#ffcc00';
         ctx.beginPath();
         ctx.arc(b.x, b.y, 8, 0, Math.PI * 2);
@@ -701,19 +835,11 @@
         drawStar(gx, gy, 5, 15, 7, '#00ffff');
       }
 
-      // 플레이어 그리기
-      const gradPlayer = ctx.createRadialGradient(player.x, player.y, 0, player.x, player.y, player.r);
-      gradPlayer.addColorStop(0, '#00ccff');
-      gradPlayer.addColorStop(1, '#003344');
-      ctx.fillStyle = gradPlayer;
-      ctx.beginPath();
-      ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-      ctx.fill();
-      // 플레이어 HP 바
-      ctx.fillStyle = '#333';
-      ctx.fillRect(player.x - 25, player.y - player.r - 12, 50, 4);
-      ctx.fillStyle = '#00cc00';
-      ctx.fillRect(player.x - 25, player.y - player.r - 12, (player.hp / player.maxHp) * 50, 4);
+      // 플레이어 그리기: 디테일이 있는 캐릭터로 대체
+      drawHero();
+
+      // 상단 UI 표시 (HP/EXP/아이템)
+      drawTopUI();
 
       // HUD 표시
       if (started) {
