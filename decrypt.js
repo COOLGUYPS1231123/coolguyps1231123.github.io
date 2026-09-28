@@ -1,0 +1,13 @@
+'use strict';
+const fs=require('fs'),crypto=require('crypto');
+const key=Buffer.from(process.env.SITE_KEY_B64||'','base64');
+const iv=Buffer.from(process.env.SITE_IV_B64||'','base64');
+const tag=Buffer.from(process.env.SITE_TAG_B64||'','base64');
+const expected=String(process.env.SITE_SHA256||'').toLowerCase();
+if(key.length!==32||iv.length!==12||tag.length!==16||!/^[a-f0-9]{64}$/.test(expected)) throw new Error('Missing deployment decryption settings');
+const enc=fs.readFileSync('site.enc');
+const d=crypto.createDecipheriv('aes-256-gcm',key,iv); d.setAuthTag(tag);
+const plain=Buffer.concat([d.update(enc),d.final()]);
+const got=crypto.createHash('sha256').update(plain).digest('hex');
+if(got!==expected) throw new Error('Archive integrity check failed');
+fs.writeFileSync('site.tgz',plain);
