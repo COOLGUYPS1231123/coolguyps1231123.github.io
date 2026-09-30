@@ -31,7 +31,8 @@ const keyText = process.env.V3_PATCH_KEY_B64;
 if (keyText) {
   const key = Buffer.from(keyText, 'base64');
   if (key.length !== 32) throw new Error('Invalid release key');
-  const envelope = Buffer.from(fs.readFileSync('release-v3-patch.b64', 'utf8').replace(/\s/g, ''), 'base64');
+  const encoded = [0, 1, 2].map(i => fs.readFileSync('release-v3-patch-' + i + '.b64', 'utf8')).join('');
+  const envelope = Buffer.from(encoded.replace(/\s/g, ''), 'base64');
   if (envelope.length < 29) throw new Error('Invalid release payload');
   const decipher = crypto.createDecipheriv('aes-256-gcm', key, envelope.subarray(0, 12));
   decipher.setAuthTag(envelope.subarray(12, 28));
