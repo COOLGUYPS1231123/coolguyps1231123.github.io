@@ -1,0 +1,9 @@
+{
+  "version": "3.0",
+  "sourceArchiveSha256": "2e62b729c1c930ccd7ebf36748119bcccc62b1b093be2b88f7e01cb01b7ea305",
+  "deployedIndexSha256": "ca370b1a32757cf64e77bb6e269185a1821c3c38d9152dc59d4985efb3478d68",
+  "fileCount": 33,
+  "preserveExistingPlayToken": true,
+  "disableExternalFontRequests": true,
+  "disableServiceWorkerRegistration": true
+}
