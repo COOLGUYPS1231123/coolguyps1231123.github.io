@@ -16,7 +16,8 @@ if(sha(enc)!==process.env.SRV3_CIPHER_SHA256)throw Error('V3 ciphertext integrit
 const key=Buffer.from(process.env.SRV3_KEY_B64||'','base64'),iv=Buffer.from(process.env.SRV3_IV_B64||'','base64'),tag=Buffer.from(process.env.SRV3_TAG_B64||'','base64');
 if(key.length!==32||iv.length!==12||tag.length!==16)throw Error('V3 decryption settings missing');
 const d=crypto.createDecipheriv('aes-256-gcm',key,iv);d.setAuthTag(tag);
-const plain=zlib.gunzipSync(Buffer.concat([d.update(enc),d.final()]),{maxOutputLength:10000000});
+const compressed=Buffer.concat([d.update(enc),d.final()]);
+const plain=(compressed[0]===31&&compressed[1]===139?zlib.gunzipSync:zlib.brotliDecompressSync)(compressed,{maxOutputLength:10000000});
 if(plain.subarray(0,4).toString()!=='V3CH')throw Error('Invalid V3 payload');
 let offset=4;while(offset<plain.length){if(offset+12>plain.length)throw Error('Truncated V3 record');const id=plain.subarray(offset,offset+8).toString('hex'),n=plain.readUInt32BE(offset+8);offset+=12;if(offset+n>plain.length)throw Error('Truncated V3 chunk');const b=plain.subarray(offset,offset+n);offset+=n;if(sha(b).slice(0,16)!==id)throw Error('V3 chunk integrity mismatch');if(dict.has(id)&&!dict.get(id).equals(b))throw Error('V3 chunk collision');dict.set(id,b);}
 const pieces=plan.chunks.map(id=>{if(!dict.has(id))throw Error('V3 chunk missing: '+id);return dict.get(id);});
