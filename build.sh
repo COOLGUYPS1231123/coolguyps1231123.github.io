@@ -7,3 +7,4 @@ node decrypt.js
 tar -xzf site.tgz -C site
 rm -f site.enc site.tgz
 test -f site/index.html
+node prepare-release.js
