@@ -15,3 +15,4 @@ elif [[ -n "${SRV3_KEY_B64:-}" ]]; then
 else
   node prepare-release.js
 fi
+node verify-deployment-state.js
