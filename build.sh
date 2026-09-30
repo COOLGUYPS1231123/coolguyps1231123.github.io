@@ -7,5 +7,11 @@ node decrypt.js
 tar -xzf site.tgz -C site
 rm -f site.enc site.tgz
 test -f site/index.html
-node prepare-release.js
-node upgrade-v3.js
+# Apply exactly one authenticated update; never apply two deltas to different bases.
+if [[ -n "${V3_PATCH_KEY_B64:-}" ]]; then
+  node prepare-release.js
+elif [[ -n "${SRV3_KEY_B64:-}" ]]; then
+  node upgrade-v3.js
+else
+  node prepare-release.js
+fi
